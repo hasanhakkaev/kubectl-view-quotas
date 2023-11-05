@@ -12,7 +12,6 @@ require (
 	github.com/json-iterator/go v1.1.6 // indirect
 	github.com/manifoldco/promptui v0.3.2
 	github.com/mattn/go-isatty v0.0.7 // indirect
-	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nicksnyder/go-i18n v1.10.1 // indirect
 	github.com/onsi/ginkgo v1.8.0 // indirect
 	github.com/onsi/gomega v1.5.0 // indirect
@@ -20,10 +19,9 @@ require (
 	github.com/spf13/cobra v0.0.4
 	github.com/spf13/viper v1.4.0
 	github.com/tj/go-spin v1.1.0
-	golang.org/x/net v0.0.0-20190812203447-cdfb69ac37fc // indirect
 	gopkg.in/alecthomas/kingpin.v3-unstable v3.0.0-20191105091915-95d230a53780 // indirect
 	k8s.io/api v0.0.0-20190313235455-40a48860b5ab // indirect
-	k8s.io/apimachinery v0.0.0-20190313205120-d7deff9243b1
+	k8s.io/apimachinery v0.15.7
 	k8s.io/cli-runtime v0.0.0-20190314001948-2899ed30580f
 	k8s.io/client-go v11.0.0+incompatible
 	k8s.io/klog v0.4.0 // indirect
