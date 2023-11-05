@@ -3,20 +3,19 @@
 The following assumes you have the plugin installed via
 
 ```shell
-kubectl krew install {{ .PluginName }}
+kubectl krew install kube-view-quotas
 ```
 
-### Scan images in your current kubecontext
+### View quotas in your current kubecontext
 
 ```shell
-kubectl {{ .PluginName }}
+kubectl kube-view-quotas
 ```
 
-### Scan images in another kubecontext
+### View quotas in another kubecontext
 
 ```shell
-kubectl {{ .PluginName }} --context=context-name
+kubectl kube-view-quotas --context=context-name
 ```
 
 ## How it works
-Write a brief description of your plugin here.
