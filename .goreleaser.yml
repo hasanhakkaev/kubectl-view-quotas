@@ -1,0 +1,34 @@
+project_name: kubectl-view-quotas
+release:
+  github:
+    owner: hasanhakkaev
+    name: kubectl-view-quotas
+builds:
+  - id: kubectl-view-quotas
+    goos:
+    - linux
+    - windows
+    - darwin
+    goarch:
+    - amd64
+    - arm64
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    env:
+      - CGO_ENABLED=0
+      - GO111MODULE=on
+    main: cmd/plugin/main.go
+    ldflags: -s -w
+      -X github.com/hasanhakkaev/kubectl-view-quotas/pkg/version.version=
+source:
+  enabled: true
+
+archives:
+  - id: kubectl-view-quotas
+    builds:
+    - kubectl-view-quotas
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+    - goos: windows
+      format: zip
