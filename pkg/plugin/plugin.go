@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gosuri/uitable"
 	"github.com/i582/cfmt/cmd/cfmt"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
@@ -61,78 +60,129 @@ func getQuotas(clientSet *kubernetes.Clientset, namespace string) (*v1.ResourceQ
 	return clientSet.CoreV1().ResourceQuotas(namespace).List(context.TODO(), metav1.ListOptions{})
 }
 
-func printResourceQuotas(list *v1.ResourceQuotaList) {
-	cfmt.RegisterStyle("url", func(s string) string {
-		return cfmt.Sprintf("{{%s}}::yellow|underline", s)
-	})
+type quotaRow struct {
+	resource string
+	used     string
+	hard     string
+	// usage is the pre-formatted visual string: "████░░░░░░  50.0%" or "N/A"
+	// kept separate from color so we can pad before applying ANSI codes.
+	usage string
+	color string
+}
 
+func printResourceQuotas(list *v1.ResourceQuotaList) {
 	for i, quota := range list.Items {
 		if i > 0 {
 			fmt.Println()
 		}
-
-		table := uitable.New()
-		table.Wrap = true
-		table.MaxColWidth = 60
-
-		table.AddRow(
-			cfmt.Sprintf("{{Name:}}::white|bold"),
-			cfmt.Sprintf("{{%s}}::lightBlue|bold", quota.Name),
-		)
-		table.AddRow(
-			cfmt.Sprintf("{{Namespace:}}::white|bold"),
-			cfmt.Sprintf("{{%s}}::lightYellow|bold", quota.Namespace),
-		)
-		table.AddRow("", "", "", "")
-		table.AddRow(
-			cfmt.Sprintf("{{Resource}}::white|bold"),
-			cfmt.Sprintf("{{Used}}::white|bold"),
-			cfmt.Sprintf("{{Hard}}::white|bold"),
-			cfmt.Sprintf("{{Usage}}::white|bold"),
-		)
-		table.AddRow(
-			strings.Repeat("─", 28),
-			strings.Repeat("─", 12),
-			strings.Repeat("─", 12),
-			strings.Repeat("─", 18),
-		)
-
-		names := make([]string, 0, len(quota.Status.Hard))
-		for resourceName := range quota.Status.Hard {
-			names = append(names, resourceName.String())
-		}
-		sort.Strings(names)
-
-		for _, name := range names {
-			resourceName := v1.ResourceName(name)
-			hard := quota.Status.Hard[resourceName]
-			used := quota.Status.Used[resourceName]
-
-			hardFloat := hard.AsApproximateFloat64()
-			if hardFloat == 0 {
-				table.AddRow(name, used.String(), hard.String(), cfmt.Sprintf("{{N/A}}::#808080"))
-				continue
-			}
-
-			color, pct, bar := resourceUsage(used.AsApproximateFloat64(), hardFloat)
-			table.AddRow(
-				name,
-				used.String(),
-				hard.String(),
-				cfmt.Sprintf("{{%s %s%%}}::"+color, bar, pct),
-			)
-		}
-
-		fmt.Println(table)
+		printQuota(quota)
 	}
 }
 
-func resourceUsage(used, hard float64) (color, percentage, bar string) {
-	if hard == 0 {
-		return "#FFFFFF", "0.0", progressBar(0)
+func printQuota(quota v1.ResourceQuota) {
+	names := make([]string, 0, len(quota.Status.Hard))
+	for resourceName := range quota.Status.Hard {
+		names = append(names, resourceName.String())
 	}
+	sort.Strings(names)
+
+	rows := make([]quotaRow, 0, len(names))
+	for _, name := range names {
+		resourceName := v1.ResourceName(name)
+		hard := quota.Status.Hard[resourceName]
+		used := quota.Status.Used[resourceName]
+		hardFloat := hard.AsApproximateFloat64()
+
+		r := quotaRow{
+			resource: name,
+			used:     used.String(),
+			hard:     hard.String(),
+		}
+		if hardFloat == 0 {
+			r.usage = "N/A"
+			r.color = "#808080"
+		} else {
+			r.color, r.usage = resourceUsage(used.AsApproximateFloat64(), hardFloat)
+		}
+		rows = append(rows, r)
+	}
+
+	const (
+		hResource = "RESOURCE"
+		hUsed     = "USED"
+		hHard     = "HARD"
+		hUsage    = "USAGE"
+	)
+
+	// Content column widths (text only, no surrounding spaces).
+	cw := [4]int{len(hResource), len(hUsed), len(hHard), len(hUsage)}
+	for _, r := range rows {
+		if l := len(r.resource); l > cw[0] {
+			cw[0] = l
+		}
+		if l := len(r.used); l > cw[1] {
+			cw[1] = l
+		}
+		if l := len(r.hard); l > cw[2] {
+			cw[2] = l
+		}
+		if l := len(r.usage); l > cw[3] {
+			cw[3] = l
+		}
+	}
+
+	// border prints a horizontal rule: left + (─×cw+2) + mid + … + right.
+	border := func(left, mid, right string) {
+		fmt.Printf("%s%s%s%s%s%s%s%s%s\n",
+			left,
+			strings.Repeat("─", cw[0]+2),
+			mid,
+			strings.Repeat("─", cw[1]+2),
+			mid,
+			strings.Repeat("─", cw[2]+2),
+			mid,
+			strings.Repeat("─", cw[3]+2),
+			right)
+	}
+
+	// Name / Namespace header — printed above the box.
+	fmt.Printf("%s %s\n",
+		cfmt.Sprintf("{{Name:}}::white|bold"),
+		cfmt.Sprintf("{{%s}}::lightBlue|bold", quota.Name))
+	fmt.Printf("%s %s\n\n",
+		cfmt.Sprintf("{{Namespace:}}::white|bold"),
+		cfmt.Sprintf("{{%s}}::lightYellow|bold", quota.Namespace))
+
+	border("┌", "┬", "┐")
+
+	// Column headers: pre-pad to content width, then apply bold.
+	// Pre-padding before cfmt ensures ANSI codes don't affect column width.
+	fmt.Printf("│ %s │ %s │ %s │ %s │\n",
+		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[0], hResource)),
+		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[1], hUsed)),
+		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[2], hHard)),
+		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[3], hUsage)))
+
+	border("├", "┼", "┤")
+
+	for _, r := range rows {
+		// Pre-pad usage string before colorizing so ANSI codes don't shift columns.
+		coloredUsage := cfmt.Sprintf("{{%s}}::"+r.color, fmt.Sprintf("%-*s", cw[3], r.usage))
+		fmt.Printf("│ %-*s │ %-*s │ %-*s │ %s │\n",
+			cw[0], r.resource,
+			cw[1], r.used,
+			cw[2], r.hard,
+			coloredUsage)
+	}
+
+	border("└", "┴", "┘")
+}
+
+// resourceUsage returns the cfmt color and a fixed-width usage string
+// "████░░░░░░  50.0%" with a right-aligned percentage field.
+func resourceUsage(used, hard float64) (color, usage string) {
 	pct := used / hard * 100
-	return chooseColor(pct), fmt.Sprintf("%.1f", pct), progressBar(pct)
+	return chooseColor(pct), fmt.Sprintf("%s %5.1f%%", progressBar(pct), pct)
 }
 
 func progressBar(percentage float64) string {
