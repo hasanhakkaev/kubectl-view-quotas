@@ -108,7 +108,13 @@ func printResourceQuotas(list *v1.ResourceQuotaList) {
 			hard := quota.Status.Hard[resourceName]
 			used := quota.Status.Used[resourceName]
 
-			color, pct, bar := resourceUsage(used.AsApproximateFloat64(), hard.AsApproximateFloat64())
+			hardFloat := hard.AsApproximateFloat64()
+			if hardFloat == 0 {
+				table.AddRow(name, used.String(), hard.String(), cfmt.Sprintf("{{N/A}}::#808080"))
+				continue
+			}
+
+			color, pct, bar := resourceUsage(used.AsApproximateFloat64(), hardFloat)
 			table.AddRow(
 				name,
 				used.String(),
