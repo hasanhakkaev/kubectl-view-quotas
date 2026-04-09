@@ -6,7 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/i582/cfmt/cmd/cfmt"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +17,15 @@ import (
 )
 
 const progressBarWidth = 10
+
+var (
+	labelStyle  = lipgloss.NewStyle().Bold(true)
+	nameStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5CB8FF"))
+	nsStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD700"))
+	headerStyle = lipgloss.NewStyle().Padding(0, 1).Bold(true)
+	cellStyle   = lipgloss.NewStyle().Padding(0, 1)
+	borderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#444444"))
+)
 
 func RunPlugin(configFlags *genericclioptions.ConfigFlags, cmd *cobra.Command) error {
 	factory := util.NewFactory(configFlags)
@@ -44,7 +54,7 @@ func RunPlugin(configFlags *genericclioptions.ConfigFlags, cmd *cobra.Command) e
 		return fmt.Errorf("failed to list resource quotas: %w", err)
 	}
 
-	printResourceQuotas(quotas)
+	PrintResourceQuotas(quotas)
 	return nil
 }
 
@@ -64,13 +74,13 @@ type quotaRow struct {
 	resource string
 	used     string
 	hard     string
-	// usage is the pre-formatted visual string: "████░░░░░░  50.0%" or "N/A"
-	// kept separate from color so we can pad before applying ANSI codes.
+	// usage is the raw visual string ("████░░░░░░  50.0%" or "N/A") before coloring.
 	usage string
 	color string
 }
 
-func printResourceQuotas(list *v1.ResourceQuotaList) {
+// PrintResourceQuotas renders all quotas in the list.
+func PrintResourceQuotas(list *v1.ResourceQuotaList) {
 	for i, quota := range list.Items {
 		if i > 0 {
 			fmt.Println()
@@ -107,79 +117,40 @@ func printQuota(quota v1.ResourceQuota) {
 		rows = append(rows, r)
 	}
 
-	const (
-		hResource = "RESOURCE"
-		hUsed     = "USED"
-		hHard     = "HARD"
-		hUsage    = "USAGE"
-	)
+	// Capture per-row colors for the StyleFunc closure.
+	colors := make([]string, len(rows))
+	for i, r := range rows {
+		colors[i] = r.color
+	}
 
-	// Content column widths (text only, no surrounding spaces).
-	cw := [4]int{len(hResource), len(hUsed), len(hHard), len(hUsage)}
+	t := table.New().
+		BorderStyle(borderStyle).
+		Headers("RESOURCE", "USED", "HARD", "USAGE").
+		StyleFunc(func(row, col int) lipgloss.Style {
+			if row == table.HeaderRow {
+				return headerStyle
+			}
+			if col == 3 {
+				return cellStyle.Foreground(lipgloss.Color(colors[row]))
+			}
+			return cellStyle
+		})
+
 	for _, r := range rows {
-		if l := len(r.resource); l > cw[0] {
-			cw[0] = l
-		}
-		if l := len(r.used); l > cw[1] {
-			cw[1] = l
-		}
-		if l := len(r.hard); l > cw[2] {
-			cw[2] = l
-		}
-		if l := len(r.usage); l > cw[3] {
-			cw[3] = l
-		}
+		t = t.Row(r.resource, r.used, r.hard, r.usage)
 	}
 
-	// border prints a horizontal rule: left + (─×cw+2) + mid + … + right.
-	border := func(left, mid, right string) {
-		fmt.Printf("%s%s%s%s%s%s%s%s%s\n",
-			left,
-			strings.Repeat("─", cw[0]+2),
-			mid,
-			strings.Repeat("─", cw[1]+2),
-			mid,
-			strings.Repeat("─", cw[2]+2),
-			mid,
-			strings.Repeat("─", cw[3]+2),
-			right)
-	}
-
-	// Name / Namespace header — printed above the box.
 	fmt.Printf("%s %s\n",
-		cfmt.Sprintf("{{Name:}}::white|bold"),
-		cfmt.Sprintf("{{%s}}::lightBlue|bold", quota.Name))
+		labelStyle.Render("Name:"),
+		nameStyle.Render(quota.Name))
 	fmt.Printf("%s %s\n\n",
-		cfmt.Sprintf("{{Namespace:}}::white|bold"),
-		cfmt.Sprintf("{{%s}}::lightYellow|bold", quota.Namespace))
-
-	border("┌", "┬", "┐")
-
-	// Column headers: pre-pad to content width, then apply bold.
-	// Pre-padding before cfmt ensures ANSI codes don't affect column width.
-	fmt.Printf("│ %s │ %s │ %s │ %s │\n",
-		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[0], hResource)),
-		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[1], hUsed)),
-		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[2], hHard)),
-		cfmt.Sprintf("{{%s}}::white|bold", fmt.Sprintf("%-*s", cw[3], hUsage)))
-
-	border("├", "┼", "┤")
-
-	for _, r := range rows {
-		// Pre-pad usage string before colorizing so ANSI codes don't shift columns.
-		coloredUsage := cfmt.Sprintf("{{%s}}::"+r.color, fmt.Sprintf("%-*s", cw[3], r.usage))
-		fmt.Printf("│ %-*s │ %-*s │ %-*s │ %s │\n",
-			cw[0], r.resource,
-			cw[1], r.used,
-			cw[2], r.hard,
-			coloredUsage)
-	}
-
-	border("└", "┴", "┘")
+		labelStyle.Render("Namespace:"),
+		nsStyle.Render(quota.Namespace))
+	fmt.Println(t.String())
 }
 
-// resourceUsage returns the cfmt color and a fixed-width usage string
-// "████░░░░░░  50.0%" with a right-aligned percentage field.
+// resourceUsage returns the hex color and a fixed-width usage string with a
+// right-aligned percentage: "████░░░░░░  17.8%".
 func resourceUsage(used, hard float64) (color, usage string) {
 	pct := used / hard * 100
 	return chooseColor(pct), fmt.Sprintf("%s %5.1f%%", progressBar(pct), pct)
