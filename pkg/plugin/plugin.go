@@ -3,9 +3,11 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+
 	"github.com/gosuri/uitable"
 	"github.com/i582/cfmt/cmd/cfmt"
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,11 +16,12 @@ import (
 	"k8s.io/kubectl/pkg/cmd/util"
 )
 
+const progressBarWidth = 10
+
 func RunPlugin(configFlags *genericclioptions.ConfigFlags, cmd *cobra.Command) error {
 	factory := util.NewFactory(configFlags)
 	clientConfig := factory.ToRawKubeConfigLoader()
 	config, err := factory.ToRESTConfig()
-
 	if err != nil {
 		return fmt.Errorf("failed to read kubeconfig: %w", err)
 	}
@@ -30,7 +33,7 @@ func RunPlugin(configFlags *genericclioptions.ConfigFlags, cmd *cobra.Command) e
 
 	namespace, _, err := clientConfig.Namespace()
 	if err != nil {
-		return errors.WithMessage(err, "Failed getting namespace")
+		return fmt.Errorf("failed getting namespace: %w", err)
 	}
 
 	if getFlagBool(cmd, "all-namespaces") {
@@ -39,14 +42,13 @@ func RunPlugin(configFlags *genericclioptions.ConfigFlags, cmd *cobra.Command) e
 
 	quotas, err := getQuotas(clientSet, namespace)
 	if err != nil {
-		return errors.Wrap(err, "failed to list resource quotas")
+		return fmt.Errorf("failed to list resource quotas: %w", err)
 	}
 
 	printResourceQuotas(quotas)
 	return nil
 }
 
-// Gets the  flag value as a boolean, otherwise returns false if the flag value is nil
 func getFlagBool(cmd *cobra.Command, flag string) bool {
 	b, err := cmd.Flags().GetBool(flag)
 	if err != nil {
@@ -56,68 +58,108 @@ func getFlagBool(cmd *cobra.Command, flag string) bool {
 }
 
 func getQuotas(clientSet *kubernetes.Clientset, namespace string) (*v1.ResourceQuotaList, error) {
-
 	return clientSet.CoreV1().ResourceQuotas(namespace).List(context.TODO(), metav1.ListOptions{})
 }
 
 func printResourceQuotas(list *v1.ResourceQuotaList) {
-	table := uitable.New()
-	table.Wrap = true
-
-	// Register styles
 	cfmt.RegisterStyle("url", func(s string) string {
 		return cfmt.Sprintf("{{%s}}::yellow|underline", s)
 	})
 
-	for _, quota := range list.Items {
-		table.AddRow("Name:", cfmt.Sprintf("{{%s}}::lightBlue|bold", quota.Name))
-		table.AddRow("Namespace:", cfmt.Sprintf("{{%s}}::lightYellow|bold", quota.Namespace))
-		table.AddRow("Resource", cfmt.Sprintf("{{Used}}::green"), cfmt.Sprintf("{{Hard}}::red"))
-		table.AddRow("--------", "----", "----")
-
-		for resourceName, hard := range quota.Status.Hard {
-			used := quota.Status.Used[resourceName]
-			color, percentage := chooseColour(used.Value(), hard.Value())
-			table.AddRow(resourceName.String(), cfmt.Sprintf("{{%s (%s%%)}}::"+color, used.String(), percentage), hard.String())
+	for i, quota := range list.Items {
+		if i > 0 {
+			fmt.Println()
 		}
-		table.AddRow("")
-	}
 
-	fmt.Println(table)
+		table := uitable.New()
+		table.Wrap = true
+		table.MaxColWidth = 60
+
+		table.AddRow(
+			cfmt.Sprintf("{{Name:}}::white|bold"),
+			cfmt.Sprintf("{{%s}}::lightBlue|bold", quota.Name),
+		)
+		table.AddRow(
+			cfmt.Sprintf("{{Namespace:}}::white|bold"),
+			cfmt.Sprintf("{{%s}}::lightYellow|bold", quota.Namespace),
+		)
+		table.AddRow("", "", "", "")
+		table.AddRow(
+			cfmt.Sprintf("{{Resource}}::white|bold"),
+			cfmt.Sprintf("{{Used}}::white|bold"),
+			cfmt.Sprintf("{{Hard}}::white|bold"),
+			cfmt.Sprintf("{{Usage}}::white|bold"),
+		)
+		table.AddRow(
+			strings.Repeat("─", 28),
+			strings.Repeat("─", 12),
+			strings.Repeat("─", 12),
+			strings.Repeat("─", 18),
+		)
+
+		names := make([]string, 0, len(quota.Status.Hard))
+		for resourceName := range quota.Status.Hard {
+			names = append(names, resourceName.String())
+		}
+		sort.Strings(names)
+
+		for _, name := range names {
+			resourceName := v1.ResourceName(name)
+			hard := quota.Status.Hard[resourceName]
+			used := quota.Status.Used[resourceName]
+
+			color, pct, bar := resourceUsage(used.AsApproximateFloat64(), hard.AsApproximateFloat64())
+			table.AddRow(
+				name,
+				used.String(),
+				hard.String(),
+				cfmt.Sprintf("{{%s %s%%}}::"+color, bar, pct),
+			)
+		}
+
+		fmt.Println(table)
+	}
 }
 
-func chooseColour(used, hard int64) (string, string) {
+func resourceUsage(used, hard float64) (color, percentage, bar string) {
 	if hard == 0 {
-		return "#FFFFFF", "0.00" // White for divide by zero scenario
+		return "#FFFFFF", "0.0", progressBar(0)
 	}
+	pct := used / hard * 100
+	return chooseColor(pct), fmt.Sprintf("%.1f", pct), progressBar(pct)
+}
 
-	percentage := float64(used) / float64(hard) * 100
-	percentageStr := fmt.Sprintf("%.2f", percentage)
+func progressBar(percentage float64) string {
+	if percentage > 100 {
+		percentage = 100
+	}
+	filled := int(percentage / 100 * progressBarWidth)
+	return strings.Repeat("█", filled) + strings.Repeat("░", progressBarWidth-filled)
+}
 
-	var color string
+func chooseColor(percentage float64) string {
 	switch {
 	case percentage >= 100:
-		color = "#FF0000" // red
+		return "#FF0000"
 	case percentage >= 90:
-		color = "#FF6347" // lightRed
+		return "#FF6347"
 	case percentage >= 80:
-		color = "#FF4500" // orangeRed
+		return "#FF4500"
 	case percentage >= 70:
-		color = "#FFA500" // orange
+		return "#FFA500"
 	case percentage >= 60:
-		color = "#FFD700" // gold
+		return "#FFD700"
 	case percentage >= 50:
-		color = "#FFFF00" // yellow
+		return "#FFFF00"
 	case percentage >= 40:
-		color = "#ADFF2F" // yellowGreen
+		return "#ADFF2F"
 	case percentage >= 30:
-		color = "#9ACD32" // greenYellow
+		return "#9ACD32"
 	case percentage >= 20:
-		color = "#90EE90" // lightGreen
+		return "#90EE90"
 	case percentage >= 10:
-		color = "#008000" // green
+		return "#008000"
 	default:
-		color = "#FFFFFF" // white
+		return "#FFFFFF"
 	}
-	return color, percentageStr
 }
