@@ -3,22 +3,33 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/cmd/util"
+	"golang.org/x/term"
 )
 
 const progressBarWidth = 10
 
+// Three-tier severity palette with AdaptiveColor so bars stay readable on
+// both light and dark terminal backgrounds.
 var (
+	colorGreen  = lipgloss.AdaptiveColor{Light: "#00875F", Dark: "#00D787"}
+	colorYellow = lipgloss.AdaptiveColor{Light: "#AF8700", Dark: "#FFD75F"}
+	colorRed    = lipgloss.AdaptiveColor{Light: "#AF0000", Dark: "#FF5F5F"}
+	colorOver   = lipgloss.AdaptiveColor{Light: "#870087", Dark: "#FF87FF"} // >100%
+	colorNA     = lipgloss.AdaptiveColor{Light: "#6C6C6C", Dark: "#8A8A8A"}
+
 	labelStyle  = lipgloss.NewStyle().Bold(true)
 	nameStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5CB8FF"))
 	nsStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFD700"))
@@ -27,7 +38,15 @@ var (
 	borderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#444444"))
 )
 
+// eighths provides sub-block precision: each rune fills 1/8 of a cell.
+var eighths = []rune{' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'}
+
 func RunPlugin(configFlags *genericclioptions.ConfigFlags, cmd *cobra.Command) error {
+	// Disable ANSI when piped or when NO_COLOR is set.
+	if !term.IsTerminal(int(os.Stdout.Fd())) || os.Getenv("NO_COLOR") != "" {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	}
+
 	factory := util.NewFactory(configFlags)
 	clientConfig := factory.ToRawKubeConfigLoader()
 	config, err := factory.ToRESTConfig()
@@ -74,12 +93,12 @@ type quotaRow struct {
 	resource string
 	used     string
 	hard     string
-	// usage is the raw visual string ("████░░░░░░  50.0%" or "N/A") before coloring.
+	// usage is the raw visual string before colorization.
 	usage string
-	color string
+	color lipgloss.TerminalColor
 }
 
-// PrintResourceQuotas renders all quotas in the list.
+// PrintResourceQuotas renders all quotas in the list to stdout.
 func PrintResourceQuotas(list *v1.ResourceQuotaList) {
 	for i, quota := range list.Items {
 		if i > 0 {
@@ -109,16 +128,15 @@ func printQuota(quota v1.ResourceQuota) {
 			hard:     hard.String(),
 		}
 		if hardFloat == 0 {
-			r.usage = "N/A"
-			r.color = "#808080"
+			r.usage = "<none>"
+			r.color = colorNA
 		} else {
 			r.color, r.usage = resourceUsage(used.AsApproximateFloat64(), hardFloat)
 		}
 		rows = append(rows, r)
 	}
 
-	// Capture per-row colors for the StyleFunc closure.
-	colors := make([]string, len(rows))
+	colors := make([]lipgloss.TerminalColor, len(rows))
 	for i, r := range rows {
 		colors[i] = r.color
 	}
@@ -131,7 +149,7 @@ func printQuota(quota v1.ResourceQuota) {
 				return headerStyle
 			}
 			if col == 3 {
-				return cellStyle.Foreground(lipgloss.Color(colors[row]))
+				return cellStyle.Foreground(colors[row])
 			}
 			return cellStyle
 		})
@@ -149,44 +167,47 @@ func printQuota(quota v1.ResourceQuota) {
 	fmt.Println(t.String())
 }
 
-// resourceUsage returns the hex color and a fixed-width usage string with a
-// right-aligned percentage: "████░░░░░░  17.8%".
-func resourceUsage(used, hard float64) (color, usage string) {
+// resourceUsage returns the AdaptiveColor and a fixed-width usage string:
+// "▉▉▉▉▉     50.0%". The percentage is right-aligned in a 6-char field.
+func resourceUsage(used, hard float64) (lipgloss.TerminalColor, string) {
 	pct := used / hard * 100
 	return chooseColor(pct), fmt.Sprintf("%s %5.1f%%", progressBar(pct), pct)
 }
 
-func progressBar(percentage float64) string {
-	if percentage > 100 {
-		percentage = 100
+// progressBar renders a 10-char bar using eighth-block characters for
+// sub-cell precision (80 distinct steps over the full width).
+func progressBar(pct float64) string {
+	if pct > 100 {
+		pct = 100
 	}
-	filled := int(percentage / 100 * progressBarWidth)
-	return strings.Repeat("█", filled) + strings.Repeat("░", progressBarWidth-filled)
+	if pct < 0 {
+		pct = 0
+	}
+	total := pct / 100 * float64(progressBarWidth*8)
+	full := int(total) / 8
+	rem := int(total) % 8
+
+	var b strings.Builder
+	b.WriteString(strings.Repeat("█", full))
+	if rem > 0 && full < progressBarWidth {
+		b.WriteRune(eighths[rem])
+		full++
+	}
+	b.WriteString(strings.Repeat(" ", progressBarWidth-full))
+	return b.String()
 }
 
-func chooseColor(percentage float64) string {
+// chooseColor returns one of three severity tiers using AdaptiveColor so the
+// palette adapts to light and dark terminal backgrounds.
+func chooseColor(pct float64) lipgloss.TerminalColor {
 	switch {
-	case percentage >= 100:
-		return "#FF0000"
-	case percentage >= 90:
-		return "#FF6347"
-	case percentage >= 80:
-		return "#FF4500"
-	case percentage >= 70:
-		return "#FFA500"
-	case percentage >= 60:
-		return "#FFD700"
-	case percentage >= 50:
-		return "#FFFF00"
-	case percentage >= 40:
-		return "#ADFF2F"
-	case percentage >= 30:
-		return "#9ACD32"
-	case percentage >= 20:
-		return "#90EE90"
-	case percentage >= 10:
-		return "#008000"
+	case pct > 100:
+		return colorOver
+	case pct >= 90:
+		return colorRed
+	case pct >= 75:
+		return colorYellow
 	default:
-		return "#FFFFFF"
+		return colorGreen
 	}
 }
