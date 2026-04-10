@@ -9,7 +9,7 @@ spec:
       matchLabels:
         os: linux
         arch: amd64
-    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_linux_amd64.tar.gz" .TagName | indent 6 }}
+    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_linux_amd64.tar.gz" .TagName }}
     files:
     - from: "./kubectl-view-quotas"
       to: "."
@@ -20,18 +20,18 @@ spec:
       matchLabels:
         os: linux
         arch: arm64
-    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_linux_arm64.tar.gz" .TagName | indent 6 }}
+    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_linux_arm64.tar.gz" .TagName }}
     files:
-      - from: "./kubectl-view-quotas"
-        to: "."
-      - from: LICENSE
-        to: "."
+    - from: "./kubectl-view-quotas"
+      to: "."
+    - from: LICENSE
+      to: "."
     bin: "kubectl-view-quotas"
   - selector:
       matchLabels:
         os: darwin
         arch: amd64
-    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_darwin_amd64.tar.gz" .TagName | indent 6 }}
+    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_darwin_amd64.tar.gz" .TagName }}
     files:
     - from: "./kubectl-view-quotas"
       to: "."
@@ -42,18 +42,18 @@ spec:
       matchLabels:
         os: darwin
         arch: arm64
-    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_darwin_arm64.tar.gz" .TagName | indent 6 }}
+    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_darwin_arm64.tar.gz" .TagName }}
     files:
-      - from: "./kubectl-view-quotas"
-        to: "."
-      - from: LICENSE
-        to: "."
+    - from: "./kubectl-view-quotas"
+      to: "."
+    - from: LICENSE
+      to: "."
     bin: "kubectl-view-quotas"
   - selector:
       matchLabels:
         os: windows
         arch: amd64
-    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_windows_amd64.zip" .TagName | indent 6 }}
+    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_windows_amd64.zip" .TagName }}
     files:
     - from: "./kubectl-view-quotas.exe"
       to: "."
@@ -64,12 +64,12 @@ spec:
       matchLabels:
         os: windows
         arch: arm64
-    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_windows_arm64.zip" .TagName | indent 6 }}
+    {{addURIAndSha "https://github.com/hasanhakkaev/kubectl-view-quotas/releases/download/{{ .TagName }}/kubectl-view-quotas_windows_arm64.zip" .TagName }}
     files:
-      - from: "./kubectl-view-quotas.exe"
-        to: "."
-      - from: LICENSE
-        to: "."
+    - from: "./kubectl-view-quotas.exe"
+      to: "."
+    - from: LICENSE
+      to: "."
     bin: "kubectl-view-quotas.exe"
   shortDescription: List resource quotas in colors
   homepage: https://github.com/hasanhakkaev/kubectl-view-quotas
