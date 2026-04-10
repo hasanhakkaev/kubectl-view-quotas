@@ -32,7 +32,6 @@ func RootCmd() *cobra.Command {
 			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-
 			finishedCh := make(chan bool, 1)
 			go func() {
 				for range finishedCh {
