@@ -27,7 +27,7 @@ var (
 	colorGreen  = lipgloss.AdaptiveColor{Light: "#00875F", Dark: "#00D787"}
 	colorYellow = lipgloss.AdaptiveColor{Light: "#AF8700", Dark: "#FFD75F"}
 	colorRed    = lipgloss.AdaptiveColor{Light: "#AF0000", Dark: "#FF5F5F"}
-	colorOver = lipgloss.AdaptiveColor{Light: "#870087", Dark: "#FF87FF"} // >100%
+	colorOver   = lipgloss.AdaptiveColor{Light: "#870087", Dark: "#FF87FF"} // >100%
 
 	labelStyle  = lipgloss.NewStyle().Bold(true)
 	nameStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5CB8FF"))
