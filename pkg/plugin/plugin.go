@@ -11,12 +11,12 @@ import (
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/cmd/util"
-	"golang.org/x/term"
 )
 
 const progressBarWidth = 10
@@ -27,8 +27,7 @@ var (
 	colorGreen  = lipgloss.AdaptiveColor{Light: "#00875F", Dark: "#00D787"}
 	colorYellow = lipgloss.AdaptiveColor{Light: "#AF8700", Dark: "#FFD75F"}
 	colorRed    = lipgloss.AdaptiveColor{Light: "#AF0000", Dark: "#FF5F5F"}
-	colorOver   = lipgloss.AdaptiveColor{Light: "#870087", Dark: "#FF87FF"} // >100%
-	colorNA     = lipgloss.AdaptiveColor{Light: "#6C6C6C", Dark: "#8A8A8A"}
+	colorOver = lipgloss.AdaptiveColor{Light: "#870087", Dark: "#FF87FF"} // >100%
 
 	labelStyle  = lipgloss.NewStyle().Bold(true)
 	nameStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5CB8FF"))
@@ -122,18 +121,19 @@ func printQuota(quota v1.ResourceQuota) {
 		used := quota.Status.Used[resourceName]
 		hardFloat := hard.AsApproximateFloat64()
 
-		r := quotaRow{
+		// Skip resources with no hard limit — they carry no quota signal.
+		if hardFloat == 0 {
+			continue
+		}
+
+		color, usage := resourceUsage(used.AsApproximateFloat64(), hardFloat)
+		rows = append(rows, quotaRow{
 			resource: name,
 			used:     used.String(),
 			hard:     hard.String(),
-		}
-		if hardFloat == 0 {
-			r.usage = "<none>"
-			r.color = colorNA
-		} else {
-			r.color, r.usage = resourceUsage(used.AsApproximateFloat64(), hardFloat)
-		}
-		rows = append(rows, r)
+			usage:    usage,
+			color:    color,
+		})
 	}
 
 	colors := make([]lipgloss.TerminalColor, len(rows))
