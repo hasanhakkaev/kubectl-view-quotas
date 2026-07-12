@@ -107,7 +107,10 @@ func PrintResourceQuotas(list *v1.ResourceQuotaList) {
 	}
 }
 
-func printQuota(quota v1.ResourceQuota) {
+// buildQuotaRows extracts the row-building logic from printQuota into a pure,
+// testable function. Every entry in Status.Hard gets a row; hard=0 means the
+// resource is forbidden and is shown as at-limit (100 %) rather than skipped.
+func buildQuotaRows(quota v1.ResourceQuota) []quotaRow {
 	names := make([]string, 0, len(quota.Status.Hard))
 	for resourceName := range quota.Status.Hard {
 		names = append(names, resourceName.String())
@@ -119,14 +122,8 @@ func printQuota(quota v1.ResourceQuota) {
 		resourceName := v1.ResourceName(name)
 		hard := quota.Status.Hard[resourceName]
 		used := quota.Status.Used[resourceName]
-		hardFloat := hard.AsApproximateFloat64()
 
-		// Skip resources with no hard limit — they carry no quota signal.
-		if hardFloat == 0 {
-			continue
-		}
-
-		color, usage := resourceUsage(used.AsApproximateFloat64(), hardFloat)
+		color, usage := resourceUsage(used.AsApproximateFloat64(), hard.AsApproximateFloat64())
 		rows = append(rows, quotaRow{
 			resource: name,
 			used:     used.String(),
@@ -135,6 +132,12 @@ func printQuota(quota v1.ResourceQuota) {
 			color:    color,
 		})
 	}
+
+	return rows
+}
+
+func printQuota(quota v1.ResourceQuota) {
+	rows := buildQuotaRows(quota)
 
 	colors := make([]lipgloss.TerminalColor, len(rows))
 	for i, r := range rows {
@@ -169,7 +172,19 @@ func printQuota(quota v1.ResourceQuota) {
 
 // resourceUsage returns the AdaptiveColor and a fixed-width usage string:
 // "▉▉▉▉▉     50.0%". The percentage is right-aligned in a 6-char field.
+//
+// Special cases for hard == 0 (divide-by-zero guard):
+//   - used == 0: treat as 100% at-limit (resource is forbidden; 0 of 0 allowed = blocked).
+//   - used  > 0: treat as over-limit; render ">100%" in the same 6-char field.
 func resourceUsage(used, hard float64) (lipgloss.TerminalColor, string) {
+	if hard == 0 {
+		if used == 0 {
+			// 0 of 0 allowed → at-limit / forbidden.
+			return colorRed, fmt.Sprintf("%s %5.1f%%", progressBar(100), 100.0)
+		}
+		// used > 0 with hard == 0 → over-limit.
+		return colorOver, fmt.Sprintf("%s %5s", progressBar(101), ">100%")
+	}
 	pct := used / hard * 100
 	return chooseColor(pct), fmt.Sprintf("%s %5.1f%%", progressBar(pct), pct)
 }
